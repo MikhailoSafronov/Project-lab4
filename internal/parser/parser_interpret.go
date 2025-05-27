@@ -12,6 +12,8 @@ func Parse(l *lexer.Lexer) ([]ast.Node, error) {
 	return parseSeq(l, false)
 }
 
+// parseSeq читає послідовність токенів, доки не зустріне потрібну “зупинку”.
+// stopOnBracket true → вихід, коли натрапили на ']'.
 func parseSeq(l *lexer.Lexer, stopOnBracket bool) ([]ast.Node, error) {
 	var nodes []ast.Node
 
@@ -22,53 +24,51 @@ func parseSeq(l *lexer.Lexer, stopOnBracket bool) ([]ast.Node, error) {
 		case lexer.GT, lexer.LT, lexer.PLUS, lexer.MINUS,
 			lexer.DOT, lexer.COMMA:
 			nodes = append(nodes, &ast.Command{Kind: tok.Kind})
+
 		case lexer.LBR:
 			body, err := parseSeq(l, true)
 			if err != nil {
 				return nil, err
 			}
 			nodes = append(nodes, &ast.Loop{Body: body})
+
 		case lexer.RBR:
 			if stopOnBracket {
 				return nodes, nil
 			}
-			return nil, fmt.Errorf("unexpected ']' at %d", tok.Offset)
+			return nil, fmt.Errorf("unexpected ']' at offset %d", tok.Offset)
+
 		case lexer.EOF:
 			if stopOnBracket {
-				return nil, fmt.Errorf("unmatched '[' at EOF")
+				return nil, fmt.Errorf("unmatched '[' (reached EOF)")
 			}
 			return nodes, nil
+
 		case lexer.INVALID:
-			return nil, fmt.Errorf("invalid character '%c' at %d", tok.Char, tok.Offset)
+			return nil, fmt.Errorf("invalid character %q at offset %d", tok.Char, tok.Offset)
+
 		default:
-			return nil, fmt.Errorf("unknown token kind: %v", tok.Kind)
+			return nil, fmt.Errorf("unknown token kind %d", tok.Kind)
 		}
 	}
 }
 
-// Interpret виконує обробку AST
+// Interpret виконує обробку AST.
 func Interpret(nodes []ast.Node) {
-	const tapeSize = 30000
+	const tapeSize = 30_000 // стандартна довжина “стрічки”
 	tape := make([]byte, tapeSize)
 	ptr := 0
 
-	var exec func(nodes []ast.Node)
-	exec = func(nodes []ast.Node) {
-		for _, n := range nodes {
+	var exec func([]ast.Node)
+	exec = func(seq []ast.Node) {
+		for _, n := range seq {
 			switch node := n.(type) {
 			case *ast.Command:
 				switch node.Kind {
 				case lexer.GT:
-					ptr++
-					if ptr >= tapeSize {
-						ptr = 0 // wrap around
-					}
+					ptr = (ptr + 1) % tapeSize               // цикл по колу
 				case lexer.LT:
-					if ptr == 0 {
-						ptr = tapeSize - 1
-					} else {
-						ptr--
-					}
+					ptr = (ptr - 1 + tapeSize) % tapeSize    // цикл по колу
 				case lexer.PLUS:
 					tape[ptr]++
 				case lexer.MINUS:
@@ -80,6 +80,7 @@ func Interpret(nodes []ast.Node) {
 					fmt.Scanf("%c", &input)
 					tape[ptr] = input
 				}
+
 			case *ast.Loop:
 				for tape[ptr] != 0 {
 					exec(node.Body)
